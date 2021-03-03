@@ -14,7 +14,6 @@ from .dp_model_inspector import DPModelInspector
 from .per_sample_gradient_clip import PerSampleGradientClipper
 from .utils import clipping
 
-
 DEFAULT_ALPHAS = [1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64))
 
 
@@ -138,7 +137,8 @@ class PrivacyEngine:
         if noise_multiplier is None:
             if target_epsilon is None or target_delta is None or epochs is None:
                 raise ValueError(
-                    "If noise_multiplier is not specified, (target_epsilon, target_delta, epochs) should be given to the engine."
+                    "If noise_multiplier is not specified, (target_epsilon, target_delta, epochs) should be given to "
+                    "the engine."
                 )
             self.noise_multiplier = get_noise_multiplier(
                 target_epsilon, target_delta, self.sample_rate, epochs, alphas
@@ -314,7 +314,8 @@ class PrivacyEngine:
         if target_delta is None:
             if self.target_delta is None:
                 raise ValueError(
-                    "If self.target_delta is not specified, target_delta should be set as argument to get_privacy_spent."
+                    "If self.target_delta is not specified, target_delta should be set as argument to "
+                    "get_privacy_spent."
                 )
             target_delta = self.target_delta
         rdp = self.get_renyi_divergence() * self.steps
@@ -381,7 +382,8 @@ class PrivacyEngine:
             >>> model = torch.nn.Linear(16, 32)  # An example model. Default device is CPU
             >>> privacy_engine = PrivacyEngine(model, sample_rate=0.01, noise_multiplier=0.8, max_grad_norm=0.5)
             >>> device = "cuda:3"  # GPU
-            >>> model.to(device)  # If we move the model to GPU, we should call the to() method of the privacy engine (next line)
+            >>> model.to(device)  # If we move the model to GPU, we should call the to() method of the privacy engine
+            (next line)
             >>> privacy_engine.to(device)
 
         Returns:
@@ -456,7 +458,9 @@ class PrivacyEngine:
             return torch.normal(
                 0,
                 self.noise_multiplier * max_grad_norm,
-                reference.grad.shape,
+                # TODO(lxuechen): The original implementation checks reference.grad; this makes it inconvenient to use
+                #  references that are not a parameter.
+                reference.grad.shape if hasattr(reference, 'grad') and reference.grad is not None else reference.shape,
                 device=self.device,
                 generator=self.random_number_generator,
             )
