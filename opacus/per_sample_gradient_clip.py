@@ -158,7 +158,9 @@ class PerSampleGradientClipper:
         for _, p in self._named_params():
             p.grad = self._scale_summed_grad(p.summed_grad, batch_size)
             n += 1
-            del p.summed_grad
+            # TODO(lxuechen): This `del` statement is good for memory, but prevents me from computing
+            #  the signal-to-noise ratio. Removing it for now.
+            # del p.summed_grad
 
         # NOTE: For Renyi-based epsilon calculation, we will calculate a flat
         # max norm equal to the norm of all clip values per layer.
@@ -261,7 +263,8 @@ class PerSampleGradientClipper:
         ]
         if len(no_grad_samples) >= 1:
             raise AttributeError(
-                f"The following layers do not have gradients: {no_grad_samples}. Are you sure they were included in the backward pass?"
+                f"The following layers do not have gradients: {no_grad_samples}. Are you sure they were included in "
+                f"the backward pass?"
             )
 
         return (
