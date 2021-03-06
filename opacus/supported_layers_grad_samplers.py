@@ -82,7 +82,6 @@ def _compute_linear_grad_sample(
         layer.weight, torch.einsum("n...ij->nij", gs), batch_dim
     )
     if layer.bias is not None:
-
         _create_or_extend_grad_sample(
             layer.bias,
             torch.einsum("n...k->nk", B),
@@ -264,8 +263,8 @@ def _compute_embedding_grad_sample(
     batch_size = A.shape[batch_dim]
     index = (
         A.unsqueeze(-1)
-        .expand(*A.shape, layer.embedding_dim)
-        .reshape(batch_size, -1, layer.embedding_dim)
+            .expand(*A.shape, layer.embedding_dim)
+            .reshape(batch_size, -1, layer.embedding_dim)
     )
     grad_sample = torch.zeros(
         batch_size, *layer.weight.shape, device=layer.weight.device
@@ -274,6 +273,23 @@ def _compute_embedding_grad_sample(
     torch.backends.cudnn.deterministic = saved
 
     _create_or_extend_grad_sample(layer.weight, grad_sample, batch_dim)
+
+
+def _compute_sparse_linear_grad_sample(
+    layer: nn.Module, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0
+) -> None:
+    _create_or_extend_grad_sample(
+        layer.in_tiles, torch.einsum("ni,nj,ik->njk", B, A, layer.out_tiles.detach()), batch_dim
+    )
+    _create_or_extend_grad_sample(
+        layer.out_tiles, torch.einsum("ni,nj,jk->nik", B, A, layer.in_tiles.detach()), batch_dim
+    )
+    if layer.bias is not None:
+        _create_or_extend_grad_sample(
+            layer.bias,
+            torch.einsum("n...k->nk", B),
+            batch_dim,
+        )
 
 
 _supported_layers_grad_samplers = {
@@ -289,4 +305,5 @@ _supported_layers_grad_samplers = {
     "InstanceNorm2d": _compute_norm_grad_sample,
     "InstanceNorm3d": _compute_norm_grad_sample,
     "SequenceBias": _compute_sequence_bias_grad_sample,
+    "SparseLinear": _compute_sparse_linear_grad_sample,
 }  # Supported layer class types
