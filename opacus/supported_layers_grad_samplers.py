@@ -11,6 +11,7 @@ Attributes:
         from layer name to corresponding grad sampler
 """
 
+import math
 from typing import Union
 
 import numpy as np
@@ -278,11 +279,12 @@ def _compute_embedding_grad_sample(
 def _compute_sparse_linear_grad_sample(
     layer: nn.Module, A: torch.Tensor, B: torch.Tensor, batch_dim: int = 0
 ) -> None:
+    grad_sample = torch.einsum("ni,nj->nij", B, A)
     _create_or_extend_grad_sample(
-        layer.in_tiles, torch.einsum("ni,nj,ik->njk", B, A, layer.out_tiles.detach()), batch_dim
+        layer.in_tiles, torch.einsum("nij,ik->njk", grad_sample, layer.out_tiles.detach()) * layer.rsqrt_rank, batch_dim
     )
     _create_or_extend_grad_sample(
-        layer.out_tiles, torch.einsum("ni,nj,jk->nik", B, A, layer.in_tiles.detach()), batch_dim
+        layer.out_tiles, torch.einsum("nij,jk->nik", grad_sample, layer.in_tiles.detach()) * layer.rsqrt_rank, batch_dim
     )
     if layer.bias is not None:
         _create_or_extend_grad_sample(
@@ -290,6 +292,48 @@ def _compute_sparse_linear_grad_sample(
             torch.einsum("n...k->nk", B),
             batch_dim,
         )
+
+
+def _compute_sparse_conv_grad_sample(
+    layer: Union[nn.Conv2d, nn.Conv1d],
+    A: torch.Tensor,
+    B: torch.Tensor,
+    batch_dim: int = 0,
+):
+    n = A.shape[0]
+    # get A and B in shape depending on the Conv layer
+    A = torch.nn.functional.unfold(
+        A, layer.kernel_size, padding=layer.padding, stride=layer.stride
+    )
+    B = B.reshape(n, -1, A.shape[-1])
+
+    # n=batch_sz; o=num_out_channels; p=(num_in_channels/groups)*kernel_sz
+    grad_sample = torch.einsum("noq,npq->nop", B, A)
+    # rearrange the above tensor and extract diagonals.
+    grad_sample = grad_sample.view(
+        n,
+        layer.groups,
+        -1,
+        layer.groups,
+        int(layer.in_channels / layer.groups),
+        np.prod(layer.kernel_size),
+    )
+    grad_sample = torch.einsum("ngrg...->ngr...", grad_sample).contiguous()
+    shape = [n] + list(layer._weight.shape)
+    grad_sample = grad_sample.reshape(shape)
+
+    _create_or_extend_grad_sample(
+        layer.in_tiles,
+        torch.einsum('noi...,ok...->nik...', grad_sample, layer.out_tiles.detach()).contiguous() * layer.rsqrt_rank,
+        batch_dim
+    )
+    _create_or_extend_grad_sample(
+        layer.out_tiles,
+        torch.einsum('noi...,ik...->nok...', grad_sample, layer.in_tiles.detach()).contiguous() * layer.rsqrt_rank,
+        batch_dim
+    )
+    if layer.bias is not None:
+        _create_or_extend_grad_sample(layer.bias, torch.sum(B, dim=2), batch_dim)
 
 
 _supported_layers_grad_samplers = {
@@ -305,5 +349,7 @@ _supported_layers_grad_samplers = {
     "InstanceNorm2d": _compute_norm_grad_sample,
     "InstanceNorm3d": _compute_norm_grad_sample,
     "SequenceBias": _compute_sequence_bias_grad_sample,
+    # My new stuff.
     "SparseLinear": _compute_sparse_linear_grad_sample,
+    "SparseConv2d": _compute_sparse_conv_grad_sample
 }  # Supported layer class types
