@@ -263,6 +263,16 @@ class PrivacyEngine:
             self.loss_reduction,
         )
 
+        # TODO: This only works for single max_grad_norm globally applied.
+        def add_noise(module, grad_input, grad_output):
+            """Backward hook for noise."""
+            for p in module.parameters():
+                if not p.requires_grad:
+                    continue
+                p.noise = self._generate_noise(max_grad_norm=self.max_grad_norm, reference=p)
+
+        self.module.register_backward_hook(add_noise)
+
         def dp_zero_grad(self):
             self.privacy_engine.zero_grad()
             self.original_zero_grad()
@@ -360,12 +370,21 @@ class PrivacyEngine:
         self.clipper.clip_and_accumulate()
         clip_values, batch_size = self.clipper.pre_step()
 
+        # Original version.
+        # params = (p for p in self.module.parameters() if p.requires_grad)
+        # for p, clip_value in zip(params, clip_values):
+        #     noise = self._generate_noise(clip_value, p)
+        #     if self.loss_reduction == "mean":
+        #         noise /= batch_size
+        #     p.grad += noise
+
+        # My version.
+        # TODO: This relies on noise being correctly added via backward hook.
         params = (p for p in self.module.parameters() if p.requires_grad)
-        for p, clip_value in zip(params, clip_values):
-            noise = self._generate_noise(clip_value, p)
+        for p in params:
             if self.loss_reduction == "mean":
-                noise /= batch_size
-            p.grad += noise
+                p.noise.div_(batch_size)
+            p.grad.add_(p.noise)
 
     def to(self, device: Union[str, torch.device]):
         """

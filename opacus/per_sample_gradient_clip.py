@@ -237,6 +237,8 @@ class PerSampleGradientClipper:
                 del param.grad_sample
             if hasattr(param, "summed_grad"):
                 del param.summed_grad
+            if hasattr(param, 'noise'):
+                del param.noise
 
     def _named_params(self) -> Iterator[Tuple[str, nn.Parameter]]:
         r"""
