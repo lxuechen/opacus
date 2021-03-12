@@ -454,17 +454,17 @@ class PrivacyEngine:
             the generated noise with noise zero and standard
             deviation of ``noise_multiplier x max_grad_norm ``
         """
+        ref_shape = (
+            reference.grad.shape if hasattr(reference, 'grad') and reference.grad is not None else reference.shape)
         if self.noise_multiplier > 0 and max_grad_norm > 0:
             return torch.normal(
                 0,
                 self.noise_multiplier * max_grad_norm,
-                # TODO(lxuechen): The original implementation checks reference.grad; this makes it inconvenient to use
-                #  references that are not a parameter.
-                reference.grad.shape if hasattr(reference, 'grad') and reference.grad is not None else reference.shape,
+                ref_shape,
                 device=self.device,
                 generator=self.random_number_generator,
             )
-        return torch.zeros(reference.grad.shape, device=self.device)
+        return torch.zeros(ref_shape, device=self.device)
 
     def _set_seed(self, seed: int):
         r"""
